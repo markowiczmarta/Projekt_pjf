@@ -93,19 +93,19 @@ def info_o_stanie(sciezka):
             c.execute("SELECT file_id FROM File WHERE path = ?", (element,))
             result = c.fetchone()
             if result is None:
-                print("Pojawil sie nowy plik w katalogu:", nazwa_pliku)
+                sg.Print("Pojawił się nowy plik w katalogu:", nazwa_pliku)
             else:
                 file_id = result[0]
                 c.execute("SELECT hash FROM File WHERE file_id = ?", (file_id,))
                 prev_hash = c.fetchone()[0]
                 if prev_hash != skrot:
-                    print("Zmiana w pliku:", nazwa_pliku)
+                    sg.Print("Zmiana w pliku:", nazwa_pliku)
                 else:
-                    print("Brak zmian w pliku:", nazwa_pliku)
+                    sg.Print("Brak zmian w pliku:", nazwa_pliku)
             if nazwa_pliku in pliki_bazy:
                 pliki_bazy.remove(nazwa_pliku)
     for name in pliki_bazy:
-        print("Plik usunięty:", name)
+        sg.Print("Plik usunięty:", name)
     conn.close()
 
 
@@ -249,6 +249,7 @@ while running:
                 if sciezka_katalogu == "":
                     sg.popup("Nie wybrano katalogu!")
                     continue
+                sg.Print("Informacje o bieżącym stanie plików:")
                 info_o_stanie(sciezka_katalogu)
         info_window.close()
         conn.close()
