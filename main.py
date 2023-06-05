@@ -1,7 +1,4 @@
-# Poprawic wyglad graficzny
-# Pozabezpieczac i testowac
-
-import sys
+# import sys
 import threading
 import PySimpleGUI as sg
 import os
@@ -64,12 +61,14 @@ def badaj_katalog(sciezka):
                 prev_hash = c.fetchone()[0]
                 if prev_hash != skrot:
                     print("Zmiana w pliku:", nazwa_pliku)
+                    print("------------------------------")
                     c.execute("UPDATE File SET hash = ?, mod_date = ?, check_date = ? WHERE file_id = ?",
                               (skrot, mod_date, check_date, file_id))
                     c.execute("INSERT INTO Change_log (file_id, change_type, change_date) VALUES ( ?, ?, ?)",
                               (file_id, "MODIFIED", datetime.now()))
                 else:
                     print("Brak zmian w pliku:", nazwa_pliku)
+                    print("------------------------------")
                     c.execute("UPDATE File SET check_date = ? WHERE file_id = ?", (check_date, file_id))
             conn.commit()
     conn.close()
@@ -81,22 +80,44 @@ def badaj_katalog_okresowo(sciezka, czestotliwosc, running_flag):
         schedule.run_pending()
 
 
-# layout = [
-#     [sg.Text("Witaj w aplikacji do weryfikacji integralności systemu plików!")],
-#     [sg.Button("Badaj katalog"), sg.Button("Konfiguracja"), sg.Button("Wyjście")],
-#     [sg.Button("Info")],
-#     [sg.Output(size=(60, 10), key="output")]  # Element Output dla wyświetlania tekstu
-# ]
+def info_o_stanie(sciezka):
+    conn = sqlite3.connect("bazadanych.db")
+    c = conn.cursor()
+    zawartosc = odczytaj_katalog(sciezka)
+    c.execute("SELECT name FROM File WHERE path LIKE ?", (sciezka + '%',))
+    pliki_bazy = [row[0] for row in c.fetchall()]
+    for element in zawartosc:
+        if os.path.isfile(element):
+            nazwa_pliku = os.path.basename(element)
+            skrot = oblicz_skrot(element)
+            c.execute("SELECT file_id FROM File WHERE path = ?", (element,))
+            result = c.fetchone()
+            if result is None:
+                print("Pojawil sie nowy plik w katalogu:", nazwa_pliku)
+            else:
+                file_id = result[0]
+                c.execute("SELECT hash FROM File WHERE file_id = ?", (file_id,))
+                prev_hash = c.fetchone()[0]
+                if prev_hash != skrot:
+                    print("Zmiana w pliku:", nazwa_pliku)
+                else:
+                    print("Brak zmian w pliku:", nazwa_pliku)
+            if nazwa_pliku in pliki_bazy:
+                pliki_bazy.remove(nazwa_pliku)
+    for name in pliki_bazy:
+        print("Plik usunięty:", name)
+    conn.close()
+
+
 layout = [
-    [sg.Text("Witaj w aplikacji do weryfikacji integralności systemu plików!", font=("Helvetica", 16), justification="center")],
+    [sg.Text("Witaj w aplikacji do weryfikacji integralności systemu plików!", font=("Helvetica", 16),
+             justification="center")],
     [sg.Button("Badaj katalog", size=(10, 2), font=("Helvetica", 12)),
      sg.Button("Konfiguracja", size=(10, 2), font=("Helvetica", 12)),
      sg.Button("Info", size=(10, 2), font=("Helvetica", 12))],
     [sg.Button("Wyjscie", size=(10, 2), font=("Helvetica", 12))],
     [sg.VerticalSeparator()],
-
 ]
-
 
 # Utworzenie okna
 window = sg.Window("Aplikacja do weryfikacji integralności systemu plików", layout)
@@ -135,8 +156,11 @@ while running:
 
             elif badanie_event == "Badaj":
                 sciezka_katalogu = badanie_values["sciezka_katalogu"]
-                window["output"].update("")  # Wyczyszczenie pola wyjścia przed wypisaniem nowych danych
-                window["output"].print(f"Badanie integralności katalogu: {sciezka_katalogu}")
+                badanie_window["output"].update("")  # Wyczyszczenie pola wyjścia przed wypisaniem nowych danych
+                if sciezka_katalogu == "":
+                    badanie_window["output"].print("Nie wybrano katalogu!")
+                    continue
+                badanie_window["output"].print(f"Badanie integralności katalogu: {sciezka_katalogu}")
                 badaj_katalog(sciezka_katalogu)
 
         badanie_window.close()
@@ -153,7 +177,7 @@ while running:
             [sg.Text("Wybierz częstotliwość badania (w minutach):", font=("Helvetica", 12), size=(20, 1)),
              sg.InputText(key="czestotliwosc", font=("Helvetica", 12))],
             [sg.Button("Zapisz", size=(8, 1), font=("Helvetica", 10)),
-             sg.Button("Anuluj", size=(8, 1), font=("Helvetica", 10))]
+             sg.Button("Powrot", size=(8, 1), font=("Helvetica", 10))]
         ]
 
         konfiguracja_window = sg.Window("Konfiguracja", konfiguracja_layout)
@@ -161,13 +185,19 @@ while running:
         while True:
             konfiguracja_event, konfiguracja_values = konfiguracja_window.read()
 
-            if konfiguracja_event == sg.WINDOW_CLOSED or konfiguracja_event == "Anuluj":
+            if konfiguracja_event == sg.WINDOW_CLOSED or konfiguracja_event == "Powrot":
                 break
 
             elif konfiguracja_event == "Zapisz":
                 sciezka_katalogu = konfiguracja_values["konfiguracja_katalogu"]
-                czestotliwosc = int(konfiguracja_values["czestotliwosc"])
-                window["output"].update("")  # Wyczyszczenie pola wyjścia przed wypisaniem nowych danych
+                try:
+                    czestotliwosc = int(konfiguracja_values["czestotliwosc"])
+                except ValueError:
+                    sg.popup("Niepoprawana wartosc czestotliwosci!")
+                    continue
+                if sciezka_katalogu == "":
+                    sg.popup("Nie wybrano katalogu!")
+                    continue
                 try:
                     # Sprawdzenie, czy konfiguracja dla danego katalogu już istnieje
                     c.execute("SELECT * FROM Configuration WHERE dir = ?", (sciezka_katalogu,))
@@ -216,32 +246,12 @@ while running:
                 break
             elif event == "Ok":
                 sciezka_katalogu = values["info_katalog"]
-                c.execute("""
-                    SELECT File.path, File.name, File.cre_date, File.mod_date, File.check_date, File.hash, 
-                        CASE WHEN File.check_date < Change_log.change_date THEN Change_log.change_type ELSE '' END AS change_type,
-                        CASE WHEN File.check_date < Change_log.change_date THEN Change_log.change_date ELSE '' END AS change_date
-                    FROM File
-                    LEFT JOIN Change_log ON File.file_id = Change_log.file_id
-                    WHERE File.path LIKE ?
-                    """, ("%" + sciezka_katalogu + "%",))
-                results = c.fetchall()
-                if results:
-                    headings = [description[0] for description in c.description]
-                    results_as_list = [list(result) for result in results]  # Przekształć krotki na listy
-                    layout = [
-                        [sg.Table(values=results_as_list, headings=headings, max_col_width=25, auto_size_columns=True,
-                                  justification='left', num_rows=20, key="table")],
-                        [sg.Button("Powrot")]
-                    ]
-                    table_window = sg.Window("Informacje", layout)
-                    while True:
-                        table_event, table_values = table_window.read()
-                        if table_event == sg.WINDOW_CLOSED or table_event == "Powrot":
-                            break
-                    table_window.close()
-                else:
-                    sg.popup("Nie znaleziono plików")
-            info_window.close()
+                if sciezka_katalogu == "":
+                    sg.popup("Nie wybrano katalogu!")
+                    continue
+                info_o_stanie(sciezka_katalogu)
+        info_window.close()
+        conn.close()
 
 window.close()
-sys.exit()
+# sys.exit()
